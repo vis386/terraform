@@ -1,0 +1,11 @@
+nodes:
+  - address: xsj-dvaprchvip01.xilinx.com
+    user: akaithe
+    role: [controlplane, worker, etcd]
+    ssh_key_path: ~/.ssh/id_rsa
+
+services:
+  etcd:
+    snapshot: true
+    creation: 6h
+    retention: 24h

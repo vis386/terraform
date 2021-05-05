@@ -1,0 +1,26 @@
+nodes:
+  - address: xsj-dvaprnchr04.xilinx.com
+    user: akaithe
+    role: [controlplane, worker, etcd]
+    ssh_key_path: ~/.ssh/id_rsa
+  - address: xsj-dvaprnchr05.xilinx.com
+    user: akaithe
+    role: [controlplane, worker, etcd]
+    ssh_key_path: ~/.ssh/id_rsa
+  - address: xsj-dvaprnchr06.xilinx.com
+    user: akaithe
+    role: [controlplane, worker, etcd]
+    ssh_key_path: ~/.ssh/id_rsa
+
+services:
+  etcd:
+    snapshot: true
+    creation: 6h
+    retention: 24h
+
+# Required for external TLS termination with
+# ingress-nginx v0.22+
+ingress:
+  provider: nginx
+  options:
+    use-forwarded-headers: "true"

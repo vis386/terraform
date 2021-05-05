@@ -1,0 +1,150 @@
+---
+#CentOS, you cannot use the root user as SSH user due to Bugzilla 1527565. https://bugzilla.redhat.com/show_bug.cgi?id=1527565
+- name: RKE pre-requisites on CentOS server
+  hosts: all
+  remote_user: root
+  vars:
+    docker_version: 19.03
+    kernel_modules:
+      - br_netfilter
+      - ip6_udp_tunnel
+      - ip_set
+      - ip_set_hash_ip
+      - ip_set_hash_net
+      - iptable_filter
+      - iptable_nat
+      - iptable_mangle
+      - iptable_raw
+      - nf_conntrack_netlink
+      - nf_conntrack
+      - nf_conntrack_ipv4
+      - nf_defrag_ipv4
+      - nf_nat
+      - nf_nat_ipv4
+      - nf_nat_masquerade_ipv4
+      - nfnetlink
+      - udp_tunnel
+      - veth
+      - vxlan
+      - x_tables
+      - xt_addrtype
+      - xt_conntrack
+      - xt_comment
+      - xt_mark
+      - xt_multiport
+      - xt_nat
+      - xt_recent
+      - xt_set
+      - xt_statistic
+      - xt_tcpudp
+
+  tasks:
+
+    - name: Create shome directory for rke user
+      file:
+        path: /opt/users
+        mode: u=rwX,g=rX,o=rX
+        recurse: yes
+        state: directory
+
+    - name: Load kernel modules for RKE
+      modprobe:
+        name: "{{ item }}"
+        state: present
+      with_items: "{{ kernel_modules }}"
+
+    - name: Add RKE admin user with custom homedir
+      user:
+        name: rke
+        shell: /bin/bash
+        home: /opt/users/rke
+
+
+    - name: Create sudo file
+      file:
+        path: /etc/sudoers.d/rke
+        state: touch
+
+    - name: Give rke user passwordless sudo
+      lineinfile:
+        path: /etc/sudoers.d/rke
+        state: present
+        line: 'rke ALL=(ALL:ALL) NOPASSWD: ALL'
+
+    - name: Set authorized key for rke user to leverage ssh_key auth
+      authorized_key:
+        user: rke
+        state: present
+        key: "{{ lookup('file', '~/.ssh/rke_rsa.pub') }}"
+
+    - name: Disable SWAP since kubernetes can't work with swap enabled (1/2)
+      shell: |
+        swapoff -a
+
+    - name: Disable SWAP in fstab since kubernetes can't work with swap enabled (2/2)
+      replace:
+        path: /etc/fstab
+        regexp: '^([^#].*?\sswap\s+.*)$'
+        replace: '# \1'
+    - name: Modify sysctl entries
+      sysctl:
+        name: '{{ item.key }}'
+        value: '{{ item.value }}'
+        sysctl_set: yes
+        state: present
+        reload: yes
+      with_items:
+        - {key: net.bridge.bridge-nf-call-ip6tables, value: 1}
+        - {key: net.bridge.bridge-nf-call-iptables,  value: 1}
+        - {key: net.ipv4.ip_forward,  value: 1}
+
+
+
+
+
+    - name: Check if Docker is installed
+      command: systemctl status docker
+      register: docker_check
+      ignore_errors: yes
+
+    - name: Check  Docker version
+      command: docker --version
+      register: docker_version
+      ignore_errors: yes
+
+    - name: Download the Docker installer
+      get_url:
+        url: https://releases.rancher.com/install-docker/19.03.sh
+        dest: /root/install_docker.sh
+        mode: 0700
+      when: (docker_check.stderr.find('service could not be found') != -1) or ('19.03' not in docker_version.stdout)
+
+
+    - name: Install Docker
+      shell: /root/install_docker.sh
+      when: (docker_check.stderr.find('service could not be found') != -1) or ('19.03' not in docker_version.stdout)
+
+
+    - name: Enable the Docker daemon in systemd
+      systemd:
+        name: docker
+        enabled: yes
+        masked: no
+
+    - name: Start the Docker daemon
+      systemd:
+        name: docker
+        state: started
+        masked: no
+
+
+    - name: Add user rke to docker group
+      user:
+          name: rke
+          groups: docker
+          append: yes
+
+    - name: Change permissions - centos issue - temp run
+      file:
+        path: /var/run/docker.sock
+        mode: u+rww,g+rwx,o+rwx
